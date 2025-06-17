@@ -34,6 +34,9 @@ services:
     networks:
       - monitoring
 
+  ui:
+    
+
   # Prometheus
   prometheus:
     image: prom/prometheus:latest
@@ -51,7 +54,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "3005:3000"
     volumes:
       - grafana-storage:/var/lib/grafana
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
