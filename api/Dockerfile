@@ -4,7 +4,7 @@ FROM python:3.13.2-slim
 WORKDIR /app
 
 # Set non-sensitive environment variables
-ARG APP_ENV=production
+ARG APP_ENV=development
 ARG POSTGRES_URL
 
 ENV APP_ENV=${APP_ENV} \

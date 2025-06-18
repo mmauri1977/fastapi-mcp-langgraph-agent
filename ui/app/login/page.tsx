@@ -63,8 +63,12 @@ export default function LoginPage() {
 
       // Redirect to chatbot page
       router.push("/chatbot")
-    } catch (err: any) {
-      setError(err.message || "An error occurred during login")
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "An error occurred during login")
+      } else {
+        console.error('An unexpected error occurred:', error);
+      }
     } finally {
       setIsLoading(false)
     }

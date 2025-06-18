@@ -6,11 +6,11 @@ import {
   useLocalRuntime,
   type ChatModelAdapter,
 } from "@assistant-ui/react";
-import { apiRequest, apiUrlEncodedRequest, withAuth } from "@/lib/api"
+import { apiRequest, withAuth } from "@/lib/api"
 
 
 const MyModelAdapterAsync: ChatModelAdapter = {
-  async *run({ messages, abortSignal, context }) {
+  async *run({ messages, abortSignal }) {
     const stream = await apiRequest("/chatbot/chat/stream", withAuth({
       method: "POST",
       headers: {
@@ -19,7 +19,13 @@ const MyModelAdapterAsync: ChatModelAdapter = {
       body: JSON.stringify({
         messages: [{
           role: messages[messages.length - 1].role,
-          content: messages[messages.length - 1].content[0].text
+          content: (() => {
+            const content = messages[messages.length - 1].content[0];
+            if (content.type === 'text') {
+              return (content as { type: 'text', text: string }).text;
+            }
+            return '';
+          })()
         }]
       }),
       // if the user hits the "cancel" button or escape keyboard key, cancel the request

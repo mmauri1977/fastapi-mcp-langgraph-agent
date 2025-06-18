@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   # Single API service with dynamic environment
@@ -10,20 +9,17 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./app:/app/app
-      - ./logs:/app/logs
+      - ./api/app:/app/app
+      - ./api/logs:/app/logs
     env_file:
-      - .env.${APP_ENV:-development}
+      - ./api/.env.${APP_ENV:-development}
     environment:
       - APP_ENV=${APP_ENV:-development}
       # Pass sensitive variables at runtime
-      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.qa.saia.ai/chat}
       - LLM_API_KEY=${LLM_API_KEY:-dummy-key-for-development}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-supersecretkeythatshouldbechangedforproduction}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:http://langfuse-web:3000}
-      - POSTGRES_URL=${POSTGRES_URL:postgresql://postgres:postgres@postgres/bot}
+      - LANGFUSE_HOST=http://langfuse-web:3000
+      - POSTGRES_URL=postgresql://postgres:postgres@postgres/bot
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -35,8 +31,20 @@ services:
       - monitoring
 
   ui:
+    build:
+      context: ui
+      args:
+        NODE_ENV: ${NODE_ENV:-development}
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./ui/.env.${NODE_ENV:-development}
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+    restart: on-failure
+    networks:
+      - monitoring
     
-
   # Prometheus
   prometheus:
     image: prom/prometheus:latest
@@ -170,9 +178,9 @@ services:
       CLICKHOUSE_DB: default
       CLICKHOUSE_USER: clickhouse
       CLICKHOUSE_PASSWORD: clickhouse # CHANGEME
-    # volumes:
-    #   - langfuse_clickhouse_data:/var/lib/clickhouse
-    #   - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
     ports:
       - 8123:8123
       - 9000:9000
