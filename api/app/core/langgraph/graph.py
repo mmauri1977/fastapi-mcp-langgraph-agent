@@ -15,8 +15,10 @@ from langchain_core.messages import (
     convert_to_openai_messages,
 )
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.prebuilt import ToolNode
 from langgraph.graph import (
     END,
     StateGraph,
@@ -30,7 +32,7 @@ from app.core.config import (
     Environment,
     settings,
 )
-from app.core.langgraph.tools import tools
+from app.core.langgraph.tools import initialize_MCP_tools
 from app.core.logging import logger
 from app.core.metrics import llm_inference_duration_seconds
 from app.core.prompts import SYSTEM_PROMPT
@@ -51,9 +53,10 @@ class LangGraphAgent:
     including LLM interactions, database connections, and response processing.
     """
 
-    def __init__(self):
+    def __init__(self, tools):
         """Initialize the LangGraph Agent with necessary components."""
         # Use environment-specific LLM model
+        self.tools = tools
         self.llm = ChatOpenAI(
             model=settings.LLM_MODEL,
             temperature=settings.DEFAULT_LLM_TEMPERATURE,
@@ -67,6 +70,11 @@ class LangGraphAgent:
         self._graph: Optional[CompiledStateGraph] = None
 
         logger.info("llm_initialized", model=settings.LLM_MODEL, environment=settings.ENVIRONMENT.value)
+    
+    @classmethod
+    async def create(cls):
+        tools = await initialize_MCP_tools()
+        return cls(tools)
 
     def _get_model_kwargs(self) -> Dict[str, Any]:
         """Get environment-specific model kwargs.
@@ -221,7 +229,7 @@ class LangGraphAgent:
             try:
                 graph_builder = StateGraph(GraphState)
                 graph_builder.add_node("chat", self._chat)
-                graph_builder.add_node("tool_call", self._tool_call)
+                graph_builder.add_node("tool_call", ToolNode(self.tools))
                 graph_builder.add_conditional_edges(
                     "chat",
                     self._should_continue,
@@ -329,7 +337,8 @@ class LangGraphAgent:
                 {"messages": dump_messages(messages), "session_id": session_id}, config, stream_mode="messages"
             ):
                 try:
-                    yield token.content
+                    if token.content and isinstance(token, AIMessageChunk):
+                        yield token.content
                 except Exception as token_error:
                     logger.error("Error processing token", error=str(token_error), session_id=session_id)
                     # Continue with next token even if current one fails

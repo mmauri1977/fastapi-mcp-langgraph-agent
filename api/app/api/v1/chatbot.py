@@ -29,9 +29,13 @@ from app.schemas.chat import (
 )
 
 router = APIRouter()
-agent = LangGraphAgent()
+_agent_instance = None
 
-
+async def get_agent():
+    global _agent_instance
+    if _agent_instance is None:
+        _agent_instance = await LangGraphAgent.create()
+    return _agent_instance
 
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit(settings.RATE_LIMIT_ENDPOINTS["chat"][0])
@@ -39,6 +43,7 @@ async def chat(
     request: Request,
     chat_request: ChatRequest,
     session: Session = Depends(get_current_session),
+    agent: LangGraphAgent = Depends(get_agent),
 ):
     """Process a chat request using LangGraph.
 
@@ -80,6 +85,7 @@ async def chat_stream(
     request: Request,
     chat_request: ChatRequest,
     session: Session = Depends(get_current_session),
+    agent: LangGraphAgent = Depends(get_agent),
 ):
     """Process a chat request using LangGraph with streaming response.
 
@@ -151,6 +157,7 @@ async def chat_stream(
 async def get_session_messages(
     request: Request,
     session: Session = Depends(get_current_session),
+    agent: LangGraphAgent = Depends(get_agent),
 ):
     """Get all messages for a session.
 
@@ -177,6 +184,7 @@ async def get_session_messages(
 async def clear_chat_history(
     request: Request,
     session: Session = Depends(get_current_session),
+    agent: LangGraphAgent = Depends(get_agent),
 ):
     """Clear all messages for a session.
 
