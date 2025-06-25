@@ -85,3 +85,18 @@ export function withAuth(options: RequestInit = {}): RequestInit {
     },
   }
 }
+
+/**
+ * Add auth token to request headers
+ */
+export function withSession(options: RequestInit = {}): RequestInit {
+  const token = localStorage.getItem("sessionToken")
+
+  return {
+    ...options,
+    headers: {
+      ...options.headers,
+      Authorization: token ? `Bearer ${token}` : "",
+    },
+  }
+}

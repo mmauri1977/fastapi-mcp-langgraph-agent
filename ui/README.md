@@ -1,13 +1,11 @@
-This is the [assistant-ui](https://github.com/Yonom/assistant-ui) starter project for langgraph.
+This is the [assistant-ui](https://github.com/Yonom/assistant-ui) starter project.
 
 ## Getting Started
 
-First, add your langgraph API url and assistant id to `.env.local` file:
+First, add your OpenAI API key to `.env.local` file:
 
 ```
-LANGCHAIN_API_KEY=your_langchain_api_key
-LANGGRAPH_API_URL=your_langgraph_api_url
-NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=your_assistant_id_or_graph_id 
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 Then, run the development server:
@@ -22,6 +20,6 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3005](http://localhost:3005) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.

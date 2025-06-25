@@ -1,3 +1,9 @@
+import { Assistant } from "./assistant";
+
+// export default function Home() {
+//   return <Assistant />;
+// }
+
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 

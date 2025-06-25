@@ -42,25 +42,6 @@ export default function LoginPage() {
       // Store token in localStorage for future requests
       localStorage.setItem("authToken", access_token)
 
-      // Get session token
-      const sessionResponse = await apiRequest("/auth/session", withAuth({
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include", // Include cookies
-      }))
-
-      if (!sessionResponse.ok) {
-        const errorData = await sessionResponse.json()
-        throw new Error(errorData.message || "Failed to create session")
-      }
-
-      const { token } = await sessionResponse.json()
-
-      // Store token in localStorage for future requests
-      localStorage.setItem("authToken", token.access_token)
-
       // Redirect to chatbot page
       router.push("/chatbot")
     } catch (err: unknown) {
