@@ -1,22 +1,24 @@
 "use client";
 
-import { Thread } from "@/components/assistant-ui/thread";
 import {
   type ChatModelAdapter,
   useLocalRuntime,
   unstable_useRemoteThreadListRuntime as useRemoteThreadListRuntime,
   useThreadListItem,
   AssistantRuntimeProvider,
+  unstable_RemoteThreadListAdapter,
+  ThreadHistoryAdapter,
+  useLocalThreadRuntime,
   RuntimeAdapterProvider,
-  RemoteThreadListAdapter,
-  type unstable_RemoteThreadListAdapter
+  ExportedMessageRepository
 } from "@assistant-ui/react";
-import { apiRequest, withAuth } from "@/lib/api"
+import { apiRequest, withAuth, withSession } from "@/lib/api"
 import { useMemo, ReactNode } from "react";
+import { v4 as uuidv4 } from 'uuid';
 
 const MyModelAdapterAsync: ChatModelAdapter = {
   async *run({ messages, abortSignal }) {
-    const stream = await apiRequest("/chatbot/chat/stream", withAuth({
+    const stream = await apiRequest("/chatbot/chat/stream", withSession({
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -71,8 +73,9 @@ const MyModelAdapterAsync: ChatModelAdapter = {
 
 
 // Implement your custom adapter with proper message persistence
-const myDatabaseAdapter: RemoteThreadListAdapter = {
+const myDatabaseAdapter: unstable_RemoteThreadListAdapter = {
   async list() {
+    console.log("list");  
     const threads = await apiRequest("/auth/sessions", withAuth({
       method: "GET",
       headers: {
@@ -81,16 +84,19 @@ const myDatabaseAdapter: RemoteThreadListAdapter = {
       credentials: "include", // Include cookies
     }))
 
-    return {
-      threads: threads.map((t) => ({
+    var response = await threads.json()
+    var json= {
+      threads: response.map((t) => ({
         status: "regular",
         remoteId: t.session_id,
+        externalId: t.token.access_token,
         title: t.name,
       })),
     };
+    return json;
   },
   async initialize(threadId) {
-
+    console.log("initialize " + threadId);   
     const thread = await apiRequest("/auth/session", withAuth({
       method: "POST",
       headers: {
@@ -101,11 +107,12 @@ const myDatabaseAdapter: RemoteThreadListAdapter = {
     const { token, session_id } = await thread.json()
 
     // Store token in localStorage for future requests
-    localStorage.setItem("authToken", token.access_token)
+    localStorage.setItem("sessionToken", token.access_token)
 
-    return { remoteId: session_id };
+    return { id: threadId, remoteId: session_id, externalId: token.access_token };
   },
   async rename(remoteId, newTitle) {
+    console.log("rename");
     await apiRequest("/auth/session/"+remoteId+"/name", withAuth({
       method: "PATCH",
       headers: {
@@ -119,15 +126,19 @@ const myDatabaseAdapter: RemoteThreadListAdapter = {
   },
   async archive(remoteId) {
     // TODO: not implemented
+    console.log("archive");
   },
   async unarchive(remoteId) {
     // TODO: not implemented
+    console.log("unarchive");
   },
   async delete(remoteId) {
     // TODO: not implemented
+    console.log("delete");
   },
   async generateTitle(remoteId, messages) {
-    const newTitle = messages[0].text.slice(30)
+    console.log("generateTitle");
+    const newTitle = messages[0].content[0].text.substring(0,30)
     
     await apiRequest("/auth/session/"+remoteId+"/name", withAuth({
       method: "PATCH",
@@ -152,10 +163,10 @@ export function MyAssistant({
 }: Readonly<{
   children: ReactNode;
 }>) {
-  //const runtime = useLocalRuntime(MyModelAdapterAsync);
+const runtime2 = useLocalRuntime(MyModelAdapterAsync);
 const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {
-      return useLocalRuntime(MyModelAdapterAsync);
+      return useLocalThreadRuntime(MyModelAdapterAsync, {});
     },
     adapter: {
       ...myDatabaseAdapter,
@@ -163,15 +174,22 @@ const runtime = useRemoteThreadListRuntime({
       unstable_Provider: ({ children }) => {
         // This runs in the context of each thread
         const threadListItem = useThreadListItem();
+        
         const remoteId = threadListItem.remoteId;
+        const externalId = threadListItem.externalId;
+        console.log("---"+remoteId+"---"+externalId)
+        
         // Create thread-specific history adapter
         const history = useMemo<ThreadHistoryAdapter>(
           () => ({
             async load() {
+              console.log("load " + remoteId);
               if (!remoteId) return { messages: [] };
 
-              
-              const messagesResponse = await apiRequest("/api/v1/chatbot/messages", withAuth({
+              // Store token in localStorage for future requests
+              localStorage.setItem("sessionToken", "" + externalId)
+
+              const messagesResponse = await apiRequest("/chatbot/messages", withSession({
                 method: "GET",
                 headers: {
                   "Content-Type": "application/json",
@@ -179,16 +197,18 @@ const runtime = useRemoteThreadListRuntime({
                 credentials: "include", // Include cookies
               }));
               const { messages } = await messagesResponse.json();
-              return {
-                messages: messages.map((m) => ({
+              const response = ExportedMessageRepository.fromArray(messages.map((m) => ({
                   role: m.role,
                   content: m.content,
-                  id: m.id,
-                  createdAt: new Date(m.createdAt),
-                })),
-              };
+                  id: uuidv4(), // TODO: remove random Uuid
+                  createdAt: new Date(m.createdAt)
+                })))
+              ;
+              console.log(response);
+              return response;
             },
             async append(message) {
+              console.log("append " + remoteId);
               // No need to do this
             },
           }),
@@ -207,6 +227,5 @@ const runtime = useRemoteThreadListRuntime({
     <AssistantRuntimeProvider runtime={runtime}>
       {children}
     </AssistantRuntimeProvider>
-    
   );
 }
