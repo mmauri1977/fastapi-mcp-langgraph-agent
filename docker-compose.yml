@@ -17,9 +17,9 @@ services:
       - APP_ENV=${APP_ENV:-development}
       # Pass sensitive variables at runtime
       - LLM_BASE_URL=${LLM_BASE_URL:-https://api.qa.saia.ai/chat}
-      - LLM_API_KEY=${LLM_API_KEY:-dummy-key-for-development}
+      - LLM_API_KEY=${LLM_API_KEY:-test_2Zh9ytWHnp3tCfl1Hqe51l3eumHEofzsPnJE1njEYMZoxvjxDqFfcjmSX2qZAMvBpWUHU7p358ijxhWff79zvQ}
       - LANGFUSE_HOST=http://langfuse-web:3000
-      - POSTGRES_URL=postgresql://postgres:postgres@postgres/bot
+      - POSTGRES_URL=postgresql://postgres:postgres@postgres/
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -251,6 +251,25 @@ services:
       - ./scripts/multiple-databases.sh:/docker-entrypoint-initdb.d/multiple-databases.sh
     networks:
       - monitoring
+
+  mcp-mongo-server:
+    image: mcp-mongo-server
+    ports:
+      - "8585:8080"
+    environment:
+      MCP_MONGODB_URI: "mongodb+srv://mcpuser:mcp1234@mcp.ndnxscx.mongodb.net/mcpdb?retryWrites=true&w=majority&appName=MCP"
+      MCP_TRANSPORT: "sse"
+    restart: unless-stopped
+
+  mcp-atlassian:
+    image: ghcr.io/sooperset/mcp-atlassian:latest
+    ports:
+      - "9001:9000"
+    env_file: /atlassian.env
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "mcp-atlassian --transport streamable-http --port 9000 -vv"
+    restart: "no"        
 
 volumes:
   langfuse_postgres_data:

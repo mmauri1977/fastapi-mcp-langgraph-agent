@@ -1,0 +1,10 @@
+{
+    "MongoDB": {
+      "url":       "http://host.docker.internal:8585/sse",
+      "transport": "sse"
+  },
+    "mcp-atlassian-http": {
+      "url": "http://host.docker.internal:9001/mcp",
+      "transport": "streamable_http"
+    }
+  }

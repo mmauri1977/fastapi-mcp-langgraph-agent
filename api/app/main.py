@@ -12,11 +12,13 @@ from dotenv import load_dotenv
 from fastapi import (
     FastAPI,
     Request,
+    Response,
     status,
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from langfuse import Langfuse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -47,7 +49,7 @@ async def lifespan(app: FastAPI):
         "application_startup",
         project_name=settings.PROJECT_NAME,
         version=settings.VERSION,
-        api_prefix=settings.API_V1_STR,
+        api_prefix="/api/v1",
     )
     yield
     logger.info("application_shutdown")
@@ -57,15 +59,14 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description=settings.DESCRIPTION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    openapi_url="/api/v1/openapi.json",
     lifespan=lifespan,
 )
 
 # Set up Prometheus metrics
 setup_metrics(app)
 
-# Add custom metrics middleware
-app.add_middleware(MetricsMiddleware)
+
 
 # Set up rate limiter exception handler
 app.state.limiter = limiter
@@ -107,15 +108,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Set up CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=["http://localhost:3000", "http://172.25.112.1:3000", "http://127.0.0.1:3000"],  # tu front
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Include API router
-app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(api_router, prefix="/api/v1")
 
+# Add custom metrics middleware
+app.add_middleware(MetricsMiddleware)
 
 @app.get("/")
 @limiter.limit(settings.RATE_LIMIT_ENDPOINTS["root"][0])
@@ -157,3 +160,9 @@ async def health_check(request: Request) -> Dict[str, Any]:
     status_code = status.HTTP_200_OK if db_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
 
     return JSONResponse(content=response, status_code=status_code)
+
+if __name__ == "__main__":
+
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            print(route.path, [method for method in route.methods])

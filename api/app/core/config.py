@@ -116,7 +116,12 @@ def parse_dict_of_lists_from_env(prefix, default_dict=None):
 
     return result
 
-
+from pydantic import BaseModel, HttpUrl, Field
+class MCPServerConfig(BaseModel):
+    url: HttpUrl
+    transport: str = Field(..., pattern="^(streamable_http|sse|stdio)$")
+    command: Optional[str] = None
+    args: Optional[List[str]] = None
 class Settings:
     """Application settings without using pydantic."""
 

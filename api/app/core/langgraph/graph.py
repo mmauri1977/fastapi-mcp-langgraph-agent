@@ -1,5 +1,11 @@
 """This file contains the LangGraph Agent/workflow and interactions with the LLM."""
-
+import asyncio
+from json import tool
+from langchain_mcp_adapters.client import MultiServerMCPClient
+import json
+import os
+from pydantic import BaseModel
+from app.core.config import Environment, settings, MCPServerConfig
 from typing import (
     Any,
     AsyncGenerator,
@@ -32,7 +38,7 @@ from app.core.config import (
     Environment,
     settings,
 )
-from app.core.langgraph.tools import initialize_MCP_tools
+
 from app.core.logging import logger
 from app.core.metrics import llm_inference_duration_seconds
 from app.core.prompts import SYSTEM_PROMPT
@@ -53,10 +59,9 @@ class LangGraphAgent:
     including LLM interactions, database connections, and response processing.
     """
 
-    def __init__(self, tools):
+    def __init__(self):
         """Initialize the LangGraph Agent with necessary components."""
         # Use environment-specific LLM model
-        self.tools = tools
         self.llm = ChatOpenAI(
             model=settings.LLM_MODEL,
             temperature=settings.DEFAULT_LLM_TEMPERATURE,
@@ -64,17 +69,12 @@ class LangGraphAgent:
             base_url=settings.LLM_BASE_URL,
             max_tokens=settings.MAX_TOKENS,
             **self._get_model_kwargs(),
-        ).bind_tools(tools)
-        self.tools_by_name = {tool.name: tool for tool in tools}
+        )
+        #self.tools_by_name = {tool.name: tool for tool in tools}
         self._connection_pool: Optional[AsyncConnectionPool] = None
         self._graph: Optional[CompiledStateGraph] = None
 
         logger.info("llm_initialized", model=settings.LLM_MODEL, environment=settings.ENVIRONMENT.value)
-    
-    @classmethod
-    async def create(cls):
-        tools = await initialize_MCP_tools()
-        return cls(tools)
 
     def _get_model_kwargs(self) -> Dict[str, Any]:
         """Get environment-specific model kwargs.
@@ -95,6 +95,75 @@ class LangGraphAgent:
             model_kwargs["frequency_penalty"] = 0.1
 
         return model_kwargs
+    
+    async def _initialize_mcp_tools(self):
+        """Initialize MCP client and load tools from server_config.json."""
+        config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config", "server_config.json")
+        try:
+            with open(config_path, "r") as f:
+                raw_config = json.load(f)
+            # Validate each server configuration
+            mcp_servers = {}
+            for name, config in raw_config.items():
+                cfg = MCPServerConfig(**config).dict(exclude_none=True)
+                if "url" in cfg:
+                    cfg["url"] = str(cfg["url"])  # Fix for pydantic HttpUrl
+                mcp_servers[name] = cfg
+            self.mcp_client = MultiServerMCPClient(mcp_servers)
+
+            mcp_tools = await self.mcp_client.get_tools()
+            self.tools_by_name = {tool.name: tool for tool in mcp_tools}
+            logger.info(
+                "mcp_tools_initialized",
+                tool_names=[tool.name for tool in mcp_tools],
+                environment=settings.ENVIRONMENT.value,
+            )
+            # Bind all tools to LLM after loading MCP tools
+            # for name, tool in self.tools_by_name.items():
+            #     schema = tool.args_schema
+            #     if isinstance(schema, type) and issubclass(schema, BaseModel):
+            #         schema_dict = schema.schema()
+            #     elif isinstance(schema, BaseModel):
+            #         schema_dict = schema.model_json_schema()
+            #     elif isinstance(schema, dict):
+            #         schema_dict = schema
+            #     else:
+            #         schema_dict = {"error": f"Unexpected type: {type(schema)}"}
+
+            #     logger.info(f"Tool {name} schema:\n{json.dumps(schema_dict, indent=2)}")
+            self.llm = self.llm.bind_tools(list(self.tools_by_name.values()))
+            logger.info(
+                "llm_tools_bound",
+                tool_names=list(self.tools_by_name.keys()),
+                environment=settings.ENVIRONMENT.value,
+            )
+        except FileNotFoundError:
+            logger.error(
+                "mcp_config_file_not_found",
+                path=config_path,
+                environment=settings.ENVIRONMENT.value,
+            )
+            if settings.ENVIRONMENT == Environment.PRODUCTION:
+                logger.warning("continuing_without_mcp_tools")
+            else:
+                raise
+        except json.JSONDecodeError:
+            logger.error(
+                "mcp_config_invalid_json",
+                path=config_path,
+                environment=settings.ENVIRONMENT.value,
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                "mcp_tools_initialization_failed",
+                error=str(e),
+                environment=settings.ENVIRONMENT.value,
+            )
+            if settings.ENVIRONMENT == Environment.PRODUCTION:
+                logger.warning("continuing_without_mcp_tools")
+            else:
+                raise    
 
     async def _get_connection_pool(self) -> AsyncConnectionPool:
         """Get a PostgreSQL connection pool using environment-specific settings.
@@ -190,16 +259,59 @@ class LangGraphAgent:
             Dict with updated messages containing tool responses.
         """
         outputs = []
+
         for tool_call in state.messages[-1].tool_calls:
-            tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
-            outputs.append(
-                ToolMessage(
-                    content=tool_result,
-                    name=tool_call["name"],
-                    tool_call_id=tool_call["id"],
+            tool = self.tools_by_name.get(tool_call["name"])
+            if not tool:
+                logger.warning(f"Tool '{tool_call['name']}' not found.")
+                outputs.append(
+                    ToolMessage(
+                        content=f"Error: Tool '{tool_call['name']}' not found.",
+                        name=tool_call["name"],
+                        tool_call_id=str(tool_call["id"]),
+                    )
                 )
-            )
-        return {"messages": outputs}
+                continue
+
+            # Validate required args from tool's JSON schema (if available)
+            schema = getattr(tool, "args_schema", None)
+            if isinstance(schema, dict):
+                required = schema.get("required", [])
+                missing = [field for field in required if field not in tool_call["args"]]
+                if missing:
+                    logger.warning(f"Skipping tool '{tool_call['name']}' due to missing args: {missing}")
+                    outputs.append(
+                        ToolMessage(
+                            content=f"Error: Missing required arguments: {missing}",
+                            name=tool_call["name"],
+                            tool_call_id=str(tool_call["id"]),
+                        )
+                    )
+                    continue
+
+            try:
+                result = await tool.ainvoke(tool_call["args"])
+                outputs.append(
+                    ToolMessage(
+                        content=result,
+                        name=tool_call["name"],
+                        tool_call_id=str(tool_call["id"]),
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Tool '{tool_call['name']}' failed: {str(e)}")
+                outputs.append(
+                    ToolMessage(
+                        content=f"Error: Tool execution failed: {str(e)}",
+                        name=tool_call["name"],
+                        tool_call_id=str(tool_call["id"]),
+                    )
+                )
+                continue
+
+        return {
+            "messages": state.messages + outputs
+        }
 
     def _should_continue(self, state: GraphState) -> Literal["end", "continue"]:
         """Determine if the agent should continue or end based on the last message.
@@ -227,9 +339,11 @@ class LangGraphAgent:
         """
         if self._graph is None:
             try:
+                # Initialize MCP tools before creating the graph
+                await self._initialize_mcp_tools()
                 graph_builder = StateGraph(GraphState)
                 graph_builder.add_node("chat", self._chat)
-                graph_builder.add_node("tool_call", ToolNode(self.tools))
+                graph_builder.add_node("tool_call", self._tool_call)
                 graph_builder.add_conditional_edges(
                     "chat",
                     self._should_continue,
