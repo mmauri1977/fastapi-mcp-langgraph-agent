@@ -16,8 +16,8 @@ services:
     environment:
       - APP_ENV=${APP_ENV:-development}
       # Pass sensitive variables at runtime
-      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.qa.saia.ai/chat}
-      - LLM_API_KEY=${LLM_API_KEY:-test_2Zh9ytWHnp3tCfl1Hqe51l3eumHEofzsPnJE1njEYMZoxvjxDqFfcjmSX2qZAMvBpWUHU7p358ijxhWff79zvQ}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
       - LANGFUSE_HOST=http://langfuse-web:3000
       - POSTGRES_URL=postgresql://postgres:postgres@postgres/
     healthcheck:
